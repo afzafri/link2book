@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Cloudflare / Wrangler
+.wrangler/
+.open-next/
+.dev.vars
+
+# Dev docs / references (not part of the app)
+/docs/dev
+
+# macOS
+.DS_Store
+
+# EPUB test outputs
+*.epub

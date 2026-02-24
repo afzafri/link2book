@@ -1,0 +1,13 @@
+name = "link2book"
+compatibility_date = "2025-09-15"
+compatibility_flags = ["nodejs_compat"]
+main = ".open-next/worker.js"
+assets = { directory = ".open-next/assets", binding = "ASSETS" }
+
+[browser]
+binding = "BROWSER"
+
+# X.com auth cookies — set via: wrangler secret put X_AUTH_TOKEN / wrangler secret put X_CT0
+# For local testing, add to .dev.vars:
+#   X_AUTH_TOKEN=<your auth_token cookie value>
+#   X_CT0=<your ct0 cookie value>
