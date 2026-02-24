@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // epub-gen-memory is a pure-JS package, no external packages needed
+  serverExternalPackages: ["playwright-extra", "playwright", "puppeteer-extra-plugin-stealth", "sharp"],
 };
 
 export default nextConfig;

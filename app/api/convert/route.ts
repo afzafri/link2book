@@ -2,17 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { canHandleUrl, parseXArticle } from "@/lib/parsers/x";
 import { buildEpub } from "@/lib/builders/epub";
 
-async function getCloudflareEnv(): Promise<{ BROWSER?: unknown; X_AUTH_TOKEN?: string; X_CT0?: string } | null> {
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
-    const ctx = await getCloudflareContext({ async: true });
-    return ctx.env as { BROWSER?: unknown; X_AUTH_TOKEN?: string; X_CT0?: string };
-  } catch {
-    // Not running on Cloudflare (local dev)
-    return null;
-  }
-}
-
 export async function POST(req: NextRequest) {
   let body: { url?: string };
   try {
@@ -34,16 +23,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Get browser binding if running on Cloudflare
-  const cfEnv = await getCloudflareEnv();
-  const browserBinding = cfEnv?.BROWSER;
-  const authToken = cfEnv?.X_AUTH_TOKEN;
-  const ct0 = cfEnv?.X_CT0;
-
-
   let parsed;
   try {
-    parsed = await parseXArticle(url, browserBinding, authToken, ct0);
+    parsed = await parseXArticle(url);
   } catch (err) {
     console.error("Parser error:", err);
     return NextResponse.json(

@@ -1,4 +1,7 @@
-import puppeteer from "@cloudflare/puppeteer";
+import { chromium } from "playwright-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+
+chromium.use(StealthPlugin());
 
 export interface ArticleContent {
   title: string;
@@ -7,36 +10,24 @@ export interface ArticleContent {
 }
 
 /**
- * Fetch the full X Article content using Cloudflare Browser Rendering.
- * The browser binding (env.BROWSER) must be configured in wrangler.toml.
+ * Fetch the full X Article content using Playwright + stealth.
  *
  * X article pages are React SPAs — content is only available after JS executes.
- * A headless browser is the only way to get the full article body server-side.
+ * The stealth plugin bypasses X's bot detection so articles load without auth.
  */
 export async function fetchArticleWithBrowser(
-  articleUrl: string,
-  browserBinding: unknown,
-  authToken?: string,
-  ct0?: string
+  articleUrl: string
 ): Promise<ArticleContent | null> {
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  const browser = await chromium.launch({ headless: true });
 
   try {
-    browser = await puppeteer.launch(browserBinding as Parameters<typeof puppeteer.launch>[0]);
-    const page = await browser.newPage();
-
-    // Set a realistic user agent
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-
-    // Inject X.com auth cookies so we can access gated article content
-    if (authToken || ct0) {
-      const cookies = [];
-      if (authToken) cookies.push({ name: "auth_token", value: authToken, domain: ".x.com", path: "/", httpOnly: true, secure: true });
-      if (ct0) cookies.push({ name: "ct0", value: ct0, domain: ".x.com", path: "/", httpOnly: false, secure: true });
-      await page.setCookie(...cookies);
-    }
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      viewport: { width: 1280, height: 900 },
+      locale: "en-US",
+    });
+    const page = await context.newPage();
 
     // domcontentloaded fires quickly; then we wait for React to hydrate the DOM
     await page.goto(articleUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -50,6 +41,12 @@ export async function fetchArticleWithBrowser(
     await page
       .waitForSelector('[data-testid="twitterArticleRichTextView"]', { timeout: 15000 })
       .catch(() => null);
+
+    // Dismiss login overlay (rendered on top of content even without auth)
+    await page.evaluate(() => {
+      document.querySelectorAll('[data-testid="login"], [data-testid="LoginForm"]').forEach(el => el.remove());
+      document.querySelectorAll('[aria-modal="true"], [role="dialog"]').forEach(el => el.remove());
+    });
 
     // Scroll through the entire page to trigger IntersectionObserver-based lazy rendering.
     // X.com only renders code blocks (and other content) when they enter the viewport.
@@ -80,9 +77,13 @@ export async function fetchArticleWithBrowser(
     const result = await page.evaluate(() => {
       const bodyEl = document.querySelector('[data-testid="twitterArticleRichTextView"]');
       const titleEl = document.querySelector('[data-testid="twitter-article-title"]');
-      const ogImage = (document.querySelector('meta[property="og:image"]') as HTMLMetaElement)?.content ?? null;
 
-      if (!bodyEl) return { bodyHtml: null, title: null, coverImageUrl: ogImage };
+      // Prefer the actual article cover photo over og:image (which is often generic)
+      const coverPhotoEl = document.querySelector('[data-testid="tweetPhoto"] img') as HTMLImageElement | null;
+      const ogImage = (document.querySelector('meta[property="og:image"]') as HTMLMetaElement)?.content ?? null;
+      const coverImageUrl = coverPhotoEl?.src ?? ogImage;
+
+      if (!bodyEl) return { bodyHtml: null, title: null, coverImageUrl };
 
       // ── Pre-pass: fix code blocks before structural transform ──────────────────
       // X.com's Prism.js tokenises code into spans; get plain textContent instead.
@@ -104,13 +105,11 @@ export async function fetchArticleWithBrowser(
         let html = "";
         for (const child of Array.from(node.childNodes)) {
           if (child.nodeType === 3) {
-            // plain text node
             html += (child as Text).textContent ?? "";
           } else if (child.nodeType === 1) {
             const el = child as Element;
             const tag = el.tagName;
             if (tag === "SPAN" || tag === "DIV") {
-              // Check if this div/span is a link wrapper (X.com puts <a> inside <div>)
               const a = el.querySelector("a");
               if (tag === "DIV" && a) {
                 const clean = document.createElement("a");
@@ -140,10 +139,6 @@ export async function fetchArticleWithBrowser(
       }
 
       // ── Structural transform ───────────────────────────────────────────────────
-      // The actual content blocks are NOT direct children of twitterArticleRichTextView.
-      // They are nested inside: div > DraftEditor-root > DraftEditor-editorContainer >
-      // public-DraftEditor-content > div > [content blocks].
-      // Find the nearest ancestor whose direct children include longform-unstyled divs.
       const firstBlock = bodyEl.querySelector(".longform-unstyled, h2, section[contenteditable], ol, blockquote");
       const contentRoot = firstBlock?.parentElement ?? bodyEl;
 
@@ -151,7 +146,6 @@ export async function fetchArticleWithBrowser(
       let chIdx = 0;
 
       for (const el of Array.from(contentRoot.children) as Element[]) {
-        // ── Plain paragraph ────────────────────────────────────────────────────
         if (el.classList.contains("longform-unstyled")) {
           const block = el.querySelector(".public-DraftStyleDefault-block") ?? el;
           const inlineHtml = getInlineHtml(block).trim();
@@ -163,7 +157,6 @@ export async function fetchArticleWithBrowser(
           continue;
         }
 
-        // ── H2 heading (inside a div wrapper) ─────────────────────────────────
         const h2 = el.tagName === "H2" ? el : el.querySelector("h2");
         if (h2) {
           const text = (h2.textContent ?? "").trim();
@@ -174,7 +167,6 @@ export async function fetchArticleWithBrowser(
           continue;
         }
 
-        // ── Code block or image (inside <section contenteditable>) ─────────────
         if (el.tagName === "SECTION") {
           const pre = el.querySelector("pre");
           if (pre) {
@@ -193,7 +185,6 @@ export async function fetchArticleWithBrowser(
           continue;
         }
 
-        // ── Ordered / unordered list ───────────────────────────────────────────
         if (el.tagName === "OL" || el.tagName === "UL") {
           const list = document.createElement(el.tagName);
           for (const li of Array.from(el.children) as Element[]) {
@@ -207,7 +198,6 @@ export async function fetchArticleWithBrowser(
           continue;
         }
 
-        // ── Blockquote ─────────────────────────────────────────────────────────
         if (el.tagName === "BLOCKQUOTE") {
           const bq = document.createElement("blockquote");
           const block = el.querySelector(".public-DraftStyleDefault-block") ?? el;
@@ -215,8 +205,6 @@ export async function fetchArticleWithBrowser(
           clean.appendChild(bq);
           continue;
         }
-
-        // ── Fallback: unknown element, skip silently ───────────────────────────
       }
 
       bodyEl.innerHTML = clean.innerHTML;
@@ -224,9 +212,14 @@ export async function fetchArticleWithBrowser(
       return {
         bodyHtml: bodyEl.innerHTML,
         title: titleEl?.textContent?.trim() ?? document.title ?? null,
-        coverImageUrl: ogImage,
+        coverImageUrl,
       };
     });
+
+    console.log("[browser-article] title:", result.title, "bodyHtml length:", result.bodyHtml?.length ?? 0);
+    console.log("[browser-article] testIds:", await page.evaluate(() =>
+      [...new Set(Array.from(document.querySelectorAll("[data-testid]")).map(e => e.getAttribute("data-testid")).filter(Boolean))]
+    ));
 
     if (!result.bodyHtml) return null;
 
@@ -239,6 +232,6 @@ export async function fetchArticleWithBrowser(
     console.error("[browser-article] Failed:", err);
     return null;
   } finally {
-    await browser?.close();
+    await browser.close();
   }
 }

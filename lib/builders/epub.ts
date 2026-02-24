@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import sharp from "sharp";
 import type { ParsedContent } from "@/lib/parsers/x";
 import { sanitizeFilename, firstMeaningfulLine } from "@/lib/utils";
 
@@ -321,6 +322,17 @@ async function downloadImage(url: string): Promise<DownloadedImage | null> {
   }
 }
 
+// Resize cover to portrait book ratio (1:1.6), image centred, white letterbox fill.
+async function processCoverImage(buffer: ArrayBuffer): Promise<{ buffer: ArrayBuffer; mime: string }> {
+  const W = 600;
+  const H = 960; // 1:1.6
+  const processed = await sharp(Buffer.from(buffer))
+    .resize(W, H, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return { buffer: processed.buffer as ArrayBuffer, mime: "image/jpeg" };
+}
+
 function mimeToExt(mime: string): string {
   if (mime === "image/png") return "png";
   if (mime === "image/gif") return "gif";
@@ -386,13 +398,17 @@ export async function buildEpub(content: ParsedContent): Promise<EpubResult> {
     if (!dl) continue;
 
     const { htmlUrl, isCover } = entries[i];
-    const ext = mimeToExt(dl.mime);
+
+    // Process cover into portrait book ratio
+    const img = isCover ? await processCoverImage(dl.buffer) : dl;
+
+    const ext = mimeToExt(img.mime);
     const filename = isCover ? `cover.${ext}` : `body${bodyImgIdx++}.${ext}`;
     const href = `images/${filename}`;
     const imgId = isCover ? "cover-img" : `body-img-${bodyImgIdx - 1}`;
 
-    manifestImages.push({ id: imgId, href, mime: dl.mime });
-    imgFolder.set(filename, { filename, buffer: dl.buffer });
+    manifestImages.push({ id: imgId, href, mime: img.mime });
+    imgFolder.set(filename, { filename, buffer: img.buffer });
     if (isCover) coverImgId = imgId;
 
     bodyHtml = bodyHtml.replaceAll(`src="${htmlUrl}"`, `src="${href}"`);

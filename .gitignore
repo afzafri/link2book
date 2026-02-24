@@ -9,7 +9,6 @@ tsconfig.tsbuildinfo
 # Cloudflare / Wrangler
 .wrangler/
 .open-next/
-.dev.vars
 
 # Dev docs / references (not part of the app)
 /docs/dev
