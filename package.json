@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "postinstall": "playwright install chromium && playwright install-deps chromium",
-    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+"deploy": "opennextjs-cloudflare build && wrangler deploy",
     "preview": "opennextjs-cloudflare build && wrangler dev"
   },
   "dependencies": {

@@ -18,7 +18,17 @@ export interface ArticleContent {
 export async function fetchArticleWithBrowser(
   articleUrl: string
 ): Promise<ArticleContent | null> {
-  const browser = await chromium.launch({ headless: true });
+  const isLinux = process.platform === "linux";
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      ...(isLinux ? ["--single-process"] : []),
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
+  });
 
   try {
     const context = await browser.newContext({
