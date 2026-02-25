@@ -333,10 +333,17 @@ async function processCoverImage(buffer: ArrayBuffer): Promise<{ buffer: ArrayBu
   return { buffer: processed.buffer as ArrayBuffer, mime: "image/jpeg" };
 }
 
+// Convert any image format to JPEG — e-ink readers (e.g. Crosspoint) only support JPEG/PNG.
+// X.com CDN serves WebP by default which is unsupported on many devices.
+async function toJpeg(buffer: ArrayBuffer): Promise<{ buffer: ArrayBuffer; mime: string }> {
+  const processed = await sharp(Buffer.from(buffer))
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  return { buffer: processed.buffer as ArrayBuffer, mime: "image/jpeg" };
+}
+
 function mimeToExt(mime: string): string {
   if (mime === "image/png") return "png";
-  if (mime === "image/gif") return "gif";
-  if (mime === "image/webp") return "webp";
   return "jpg";
 }
 
@@ -399,8 +406,10 @@ export async function buildEpub(content: ParsedContent): Promise<EpubResult> {
 
     const { htmlUrl, isCover } = entries[i];
 
-    // Process cover into portrait book ratio
-    const img = isCover ? await processCoverImage(dl.buffer) : dl;
+    // Cover → portrait ratio; body images → convert to JPEG for e-reader compatibility
+    const img = isCover
+      ? await processCoverImage(dl.buffer)
+      : await toJpeg(dl.buffer);
 
     const ext = mimeToExt(img.mime);
     const filename = isCover ? `cover.${ext}` : `body${bodyImgIdx++}.${ext}`;
