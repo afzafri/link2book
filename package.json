@@ -6,12 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "postinstall": "playwright install chromium && playwright install-deps chromium",
     "deploy": "opennextjs-cloudflare build && wrangler deploy",
     "preview": "opennextjs-cloudflare build && wrangler dev"
   },
   "dependencies": {
     "jszip": "^3.10.1",
     "next": "^15.1.6",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sharp": "^0.34.5",
@@ -25,10 +28,8 @@
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
     "playwright": "^1.58.2",
-    "playwright-extra": "^4.3.6",
     "puppeteer": "^24.37.5",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "typescript": "^5",
     "wrangler": "^4.68.0"
   }
