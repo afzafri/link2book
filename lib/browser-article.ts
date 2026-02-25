@@ -29,17 +29,12 @@ export async function fetchArticleWithBrowser(
     });
     const page = await context.newPage();
 
-    // domcontentloaded fires quickly; then we wait for React to hydrate the DOM
+    // domcontentloaded fires quickly; then we wait for the article body specifically
     await page.goto(articleUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    // Wait for any app content to render (React SPA needs time after scripts run)
+    // Wait for article body — this implicitly covers React hydration
     await page
-      .waitForFunction(() => document.body && document.body.children.length > 2, { timeout: 15000 })
-      .catch(() => null);
-
-    // Wait for article body
-    await page
-      .waitForSelector('[data-testid="twitterArticleRichTextView"]', { timeout: 15000 })
+      .waitForSelector('[data-testid="twitterArticleRichTextView"]', { timeout: 12000 })
       .catch(() => null);
 
     // Dismiss login overlay (rendered on top of content even without auth)
@@ -48,12 +43,12 @@ export async function fetchArticleWithBrowser(
       document.querySelectorAll('[aria-modal="true"], [role="dialog"]').forEach(el => el.remove());
     });
 
-    // Scroll through the entire page to trigger IntersectionObserver-based lazy rendering.
-    // X.com only renders code blocks (and other content) when they enter the viewport.
+    // Scroll through to trigger IntersectionObserver-based lazy rendering (code blocks, images).
+    // Faster step + shorter delay keeps this under ~1s for most articles.
     await page.evaluate(async () => {
       await new Promise<void>((resolve) => {
-        const step = 400;
-        const delay = 120;
+        const step = 800;
+        const delay = 50;
         const timer = setInterval(() => {
           window.scrollBy(0, step);
           if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight) {
@@ -65,13 +60,13 @@ export async function fetchArticleWithBrowser(
       });
     });
 
-    // After scrolling, wait for code block content to be populated
+    // Wait for code block content to be populated after scroll
     await page
       .waitForFunction(() => {
         const codes = document.querySelectorAll('[data-testid="twitterArticleRichTextView"] code');
         if (codes.length === 0) return true;
         return Array.from(codes).every((c) => (c.textContent ?? "").trim().length > 0);
-      }, { timeout: 10000 })
+      }, { timeout: 8000 })
       .catch(() => null);
 
     const result = await page.evaluate(() => {
