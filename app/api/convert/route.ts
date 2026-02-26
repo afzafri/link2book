@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { canHandleUrl, parseXArticle } from "@/lib/parsers/x";
 import { buildEpub } from "@/lib/builders/epub";
+import { verifySession, SESSION_COOKIE } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
+  // CSRF check
+  const requestedWith = req.headers.get("x-requested-with");
+  if (!requestedWith || requestedWith.toLowerCase() !== "xmlhttprequest") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Session check
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!sessionToken || !verifySession(sessionToken)) {
+    return NextResponse.json(
+      { error: "Session expired. Please refresh the page." },
+      { status: 401 }
+    );
+  }
+
   let body: { url?: string };
   try {
     body = await req.json();

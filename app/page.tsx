@@ -1,6 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+
+// ── Turnstile types ────────────────────────────────────────────────────────────
+interface TurnstileInstance {
+  render: (
+    el: HTMLElement,
+    opts: {
+      sitekey: string;
+      callback?: (token: string) => void;
+      "expired-callback"?: () => void;
+      "error-callback"?: () => void;
+    }
+  ) => string;
+  reset: (widgetId: string) => void;
+}
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileInstance;
+  }
+}
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -9,17 +29,96 @@ export default function Home() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState<string>("");
 
+  // ── Session / Turnstile ────────────────────────────────────────────────────
+  const widgetIdRef = useRef<string | null>(null);
+  const sessionOkRef = useRef(false);
+  const sessionResolversRef = useRef<Array<(ok: boolean) => void>>([]);
+
+  function resolveSessionWaiters(ok: boolean) {
+    sessionOkRef.current = ok;
+    const resolvers = sessionResolversRef.current;
+    sessionResolversRef.current = [];
+    resolvers.forEach((r) => r(ok));
+  }
+
+  async function onTurnstileToken(token: string) {
+    try {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ captcha_token: token }),
+      });
+      resolveSessionWaiters(res.ok);
+    } catch {
+      resolveSessionWaiters(false);
+    }
+  }
+
+  function onTurnstileExpired() {
+    sessionOkRef.current = false;
+    if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
+  }
+
+  function onTurnstileError() {
+    resolveSessionWaiters(false);
+  }
+
+  useEffect(() => {
+    async function init() {
+      let attempts = 0;
+      while (!window.turnstile && attempts++ < 60) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const container = document.getElementById("cf-turnstile");
+      if (!container || !window.turnstile) return;
+
+      widgetIdRef.current = window.turnstile.render(container, {
+        sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!,
+        callback: onTurnstileToken,
+        "expired-callback": onTurnstileExpired,
+        "error-callback": onTurnstileError,
+      });
+    }
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function ensureSession(): Promise<boolean> {
+    if (sessionOkRef.current) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      sessionResolversRef.current.push(resolve);
+      if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
+    });
+  }
+
   async function handleConvert() {
     setError(null);
     setDownloadUrl(null);
     setLoading(true);
 
+    const ready = await ensureSession();
+    if (!ready) {
+      setError("Security verification failed. Please refresh the page and try again.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/convert", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
         body: JSON.stringify({ url }),
       });
+
+      if (res.status === 401) {
+        sessionOkRef.current = false;
+        if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
+        setError("Session expired. Please try again.");
+        return;
+      }
 
       if (!res.ok) {
         const ct = res.headers.get("content-type") ?? "";
@@ -35,7 +134,6 @@ export default function Home() {
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
 
-      // Extract filename from Content-Disposition header
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const match = disposition.match(/filename="(.+)"/);
       const name = match ? match[1] : "book.epub";
@@ -102,6 +200,9 @@ export default function Home() {
           </a>
         </div>
       )}
+
+      {/* Invisible Turnstile widget — no visible UI */}
+      <div id="cf-turnstile" style={{ display: "none" }} />
     </main>
   );
 }
