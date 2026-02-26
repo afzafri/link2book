@@ -44,7 +44,10 @@ export function canHandleUrl(url: string): boolean {
   );
 }
 
-export async function parseXArticle(url: string): Promise<ParsedContent> {
+export async function parseXArticle(
+  url: string,
+  opts?: { onProgress?: (msg: string) => void }
+): Promise<ParsedContent> {
   const { fetchArticleWithBrowser } = await import("@/lib/browser-article");
 
   // ── Direct article URL (e.g. x.com/User/article/123) ──────────────────────
@@ -62,7 +65,7 @@ export async function parseXArticle(url: string): Promise<ParsedContent> {
     // Use user-scoped URL — x.com/i/article/ shows empty state without auth
     const articleUrl = `https://x.com/${articleInfo.username}/article/${articleInfo.articleId}`;
     console.log("[parser] direct article path → navigating to:", articleUrl);
-    const full = await fetchArticleWithBrowser(articleUrl);
+    const full = await fetchArticleWithBrowser(articleUrl, { onProgress: opts?.onProgress });
     console.log("[parser] browser returned bodyHtml length:", full?.bodyHtml?.length ?? 0);
     if (!full?.bodyHtml) throw new Error("Failed to extract article content.");
 
@@ -105,7 +108,7 @@ export async function parseXArticle(url: string): Promise<ParsedContent> {
     try {
       const articleUrl = `https://x.com/${authorHandle}/article/${tweetId}`;
       console.log("[parser] status path → navigating to:", articleUrl);
-      const full = await fetchArticleWithBrowser(articleUrl);
+      const full = await fetchArticleWithBrowser(articleUrl, { onProgress: opts?.onProgress });
       console.log("[parser] browser returned bodyHtml length:", full?.bodyHtml?.length ?? 0);
 
       if (full?.bodyHtml) {

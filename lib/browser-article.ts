@@ -11,6 +11,7 @@ export interface ArticleContent {
 
 interface FetchOptions {
   debug?: boolean;
+  onProgress?: (msg: string) => void;
 }
 
 /**
@@ -53,6 +54,14 @@ export async function fetchArticleWithBrowser(
       });
     }
 
+    // Expose Node.js progress callback into browser context so scroll loop can
+    // emit real-time progress events without CDP round-trips on every call.
+    if (opts?.onProgress) {
+      await page.exposeFunction("__l2bProgress", opts.onProgress);
+    }
+
+    opts?.onProgress?.("Loading article page...");
+
     // domcontentloaded fires quickly; then we wait for the article body specifically
     await page.goto(articleUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
@@ -60,6 +69,8 @@ export async function fetchArticleWithBrowser(
     await page
       .waitForSelector('[data-testid="twitterArticleRichTextView"]', { timeout: 12000 })
       .catch(() => null);
+
+    opts?.onProgress?.("Article found, scrolling to load content...");
 
     // Dismiss login overlay (rendered on top of content even without auth)
     await page.evaluate(() => {
@@ -70,7 +81,8 @@ export async function fetchArticleWithBrowser(
     // ── FR1: Stable-height scrolling ──────────────────────────────────────────
     // Scroll until near bottom AND scrollHeight stable for N consecutive rounds.
     // Runs entirely inside page.evaluate (zero CDP round-trips during scroll).
-    const scrollStats = await page.evaluate(async (dbg: boolean) => {
+    // Progress is reported every 10 rounds via the exposed __l2bProgress function.
+    const scrollStats = await page.evaluate(async ({ dbg, hasProgress }: { dbg: boolean; hasProgress: boolean }) => {
       const stepPx = 500;
       const delayMs = 80;
       const stableRounds = 6;
@@ -82,6 +94,9 @@ export async function fetchArticleWithBrowser(
       let rounds = 0;
 
       const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+      type WinWithProgress = Window & { __l2bProgress?: (msg: string) => Promise<void> };
+      const progressFn = hasProgress ? (window as WinWithProgress).__l2bProgress : null;
 
       while (rounds < maxRounds) {
         window.scrollBy(0, stepPx);
@@ -99,6 +114,12 @@ export async function fetchArticleWithBrowser(
           stableCount++;
           if (stableCount >= stableRounds) break;
         }
+
+        // Emit real scroll progress every 10 rounds (~every 800ms)
+        if (progressFn && rounds % 10 === 0) {
+          const pct = Math.min(Math.round((rounds / maxRounds) * 100), 95);
+          await progressFn(`Scrolling through article... ${pct}%`);
+        }
       }
 
       if (dbg) {
@@ -108,11 +129,13 @@ export async function fetchArticleWithBrowser(
       }
 
       return { rounds, finalHeight: lastHeight };
-    }, debug);
+    }, { dbg: debug, hasProgress: !!opts?.onProgress });
 
     if (debug) {
       console.log("[browser-article] scroll stats:", scrollStats);
     }
+
+    opts?.onProgress?.("Waiting for content to stabilize...");
 
     // ── FR2.2: Content stability (post-scroll) ───────────────────────────────
     await page
@@ -186,6 +209,8 @@ export async function fetchArticleWithBrowser(
 
     // Micro-buffer (down from 1500ms)
     await page.waitForTimeout(200);
+
+    opts?.onProgress?.("Extracting article content...");
 
     // ── Extraction ────────────────────────────────────────────────────────────
     const result = await page.evaluate((dbg: boolean) => {
