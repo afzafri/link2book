@@ -19,9 +19,52 @@ Before deploying to any platform:
 | **Cloudflare Workers** | No Playwright support. Browser Rendering doesn't allow custom launch flags needed for stealth. |
 | **AWS Lambda** | Possible with a Chromium layer but impractical due to cold start and timeout constraints. |
 
-## Leapcell (Primary)
+## Render (Primary)
 
-[Leapcell](https://leapcell.io) supports Node.js apps with system dependencies.
+[Render](https://render.com) is the recommended platform. It supports Docker-based deployments with full Playwright + Chromium support and SSE streaming works correctly out of the box.
+
+A `Dockerfile` is included in the repo root. Render auto-detects it.
+
+**Steps:**
+
+1. Create a new **Web Service** on Render, connect your GitHub repo.
+2. Render will detect the `Dockerfile` automatically — no build/start commands needed.
+3. Add environment variables in the Render dashboard:
+
+| Variable | Notes |
+| --- | --- |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Check **"Available during build"** — required at build time |
+| `NEXT_PUBLIC_APP_URL` | Check **"Available during build"** — required at build time |
+| `TURNSTILE_SECRET_KEY` | Runtime only |
+| `SESSION_SECRET` | Runtime only (`openssl rand -base64 32`) |
+
+> `NEXT_PUBLIC_*` variables are inlined by Next.js at build time. They must be marked as available during build or the Turnstile widget and app URL will be undefined in production.
+
+**Free tier note:** Render's free tier spins down after 15 minutes of inactivity. First request after idle incurs a ~30s cold start.
+
+## Docker / VPS
+
+The included `Dockerfile` works on any Docker-capable host:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_TURNSTILE_SITE_KEY=your_key \
+  --build-arg NEXT_PUBLIC_APP_URL=https://your-domain.com \
+  -t link2book .
+
+docker run -p 3000:3000 \
+  -e TURNSTILE_SECRET_KEY=your_secret \
+  -e SESSION_SECRET=your_session_secret \
+  link2book
+```
+
+## Railway / Fly.io
+
+Use the same `Dockerfile`. Pass `NEXT_PUBLIC_*` vars as build arguments in the platform's dashboard or CLI.
+
+## Leapcell
+
+[Leapcell](https://leapcell.io) supports Node.js apps with system dependencies via a build script.
 
 **Build command:**
 
@@ -29,35 +72,13 @@ Before deploying to any platform:
 sh prepare_playwright_env.sh && npm install && npm run build
 ```
 
-`prepare_playwright_env.sh` installs the Chromium binary and its system-level dependencies (libatk, libcups, etc.).
-
 **Start command:**
 
 ```bash
 npm start
 ```
 
-## Docker / VPS
-
-```bash
-npm install
-npx playwright install chromium
-npx playwright install-deps chromium
-npm run build
-npm start
-```
-
-`install-deps` installs system libraries required by Chromium on Debian/Ubuntu. Not needed on macOS.
-
-## Railway / Render / Fly.io
-
-```bash
-# Build command
-npx playwright install chromium && npx playwright install-deps chromium && npm run build
-
-# Start command
-npm start
-```
+> **Known issue:** SSE streaming does not work reliably on Leapcell. The response arrives all at once instead of progressively, even with `X-Accel-Buffering: no` and `X-Content-Type-Options: nosniff` headers set. Root cause is unclear — likely Leapcell's proxy layer buffers the response regardless of headers. Use Render instead if streaming is required.
 
 ## Next Steps
 

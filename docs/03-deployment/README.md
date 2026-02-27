@@ -6,7 +6,7 @@ Guides for deploying Link2Book to production.
 
 ### [1. Deployment Guide](01-deployment-guide.md)
 
-Supported platforms, environment checklist, and platform-specific instructions (Leapcell, Docker/VPS, Railway/Render/Fly.io).
+Supported platforms, environment checklist, and platform-specific instructions (Render, Docker/VPS, Railway/Fly.io).
 
 ## Related Documentation
 

@@ -58,6 +58,7 @@ Full documentation is in [`docs/`](docs/README.md).
 - **Playwright** + stealth plugin — headless browser for X's React SPA
 - **JSZip** + **sharp** — custom EPUB 3 builder with image processing
 - **Cloudflare Turnstile** — invisible captcha
+- **Render** — Docker-based deployment (SSE streaming works out of the box)
 
 ## References
 
