@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 // ── Turnstile types ────────────────────────────────────────────────────────────
 interface TurnstileInstance {
@@ -49,7 +49,22 @@ export default function Home() {
   const [stages, setStages] = useState<string[]>([]);
   const [bookData, setBookData] = useState<BookData | null>(null);
   const [revealedBlocks, setRevealedBlocks] = useState<string[]>([]);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Split blocks into pages, fixed block count per page
+  const BLOCKS_PER_PAGE = 10;
+  const pages = useMemo(() => {
+    const result: string[][] = [];
+    for (let i = 0; i < revealedBlocks.length; i += BLOCKS_PER_PAGE) {
+      result.push(revealedBlocks.slice(i, i + BLOCKS_PER_PAGE));
+    }
+    return result;
+  }, [revealedBlocks]);
+
+  // While streaming, always follow the last page so user watches it fill
+  useEffect(() => {
+    if (loading && pages.length > 0) setCurrentPage(pages.length - 1);
+  }, [pages.length, loading]);
 
   // ── Session / Turnstile ────────────────────────────────────────────────────
   const widgetIdRef = useRef<string | null>(null);
@@ -110,15 +125,18 @@ export default function Home() {
     return new Promise((resolve) => {
       sessionResolversRef.current.push(resolve);
       if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
+      // Safety timeout: if Turnstile doesn't respond in 12s, resolve false
+      // so the button doesn't stay locked forever.
+      setTimeout(() => {
+        const idx = sessionResolversRef.current.indexOf(resolve);
+        if (idx !== -1) {
+          sessionResolversRef.current.splice(idx, 1);
+          resolve(false);
+        }
+      }, 12000);
     });
   }
 
-  // Auto-scroll when new blocks arrive
-  useEffect(() => {
-    if (contentRef.current && revealedBlocks.length > 0) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-  }, [revealedBlocks.length]);
 
   const handleConvert = useCallback(async () => {
     setError(null);
@@ -126,6 +144,7 @@ export default function Home() {
     setStages([]);
     setBookData(null);
     setRevealedBlocks([]);
+    setCurrentPage(0);
 
     const ready = await ensureSession();
     if (!ready) {
@@ -148,6 +167,7 @@ export default function Home() {
         sessionOkRef.current = false;
         if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
         setError("Session expired. Please try again.");
+        setLoading(false);
         return;
       }
 
@@ -227,6 +247,8 @@ export default function Home() {
 
       case "complete":
         setLoading(false);
+        setCurrentPage(0);
+        setStages((prev) => [...prev, "Complete"]);
         setBookData((prev) =>
           prev
             ? { ...prev, isComplete: true, filename: event.filename, epubBase64: event.epubBase64 }
@@ -311,20 +333,22 @@ export default function Home() {
                 <img src={bookData.coverImageUrl} alt="Cover" className="cover-image" />
               </div>
             )}
-            <h1 className="book-title">{bookData.title}</h1>
-            <p className="book-author">
-              by {bookData.author} (@{bookData.authorHandle})
-            </p>
-            {bookData.createdAt && (
-              <p className="book-date">{new Date(bookData.createdAt).toDateString()}</p>
-            )}
+            <div className="book-cover-info">
+              <h1 className="book-title">{bookData.title}</h1>
+              <p className="book-author">
+                by {bookData.author} (@{bookData.authorHandle})
+              </p>
+              {bookData.createdAt && (
+                <p className="book-date">{new Date(bookData.createdAt).toDateString()}</p>
+              )}
+            </div>
           </div>
 
-          {/* Content with progressive reveal */}
-          <div className="book-content" ref={contentRef}>
-            {revealedBlocks.map((block, idx) => (
+          {/* Paged content */}
+          <div className="book-page">
+            {pages[currentPage]?.map((block, idx) => (
               <div
-                key={idx}
+                key={`${currentPage}-${idx}`}
                 className="content-block"
                 dangerouslySetInnerHTML={{ __html: block }}
               />
@@ -337,6 +361,33 @@ export default function Home() {
               </div>
             )}
           </div>
+
+          {/* Page navigation */}
+          {pages.length > 0 && (
+            <div className="page-nav">
+              <button
+                className="page-btn"
+                onClick={() => setCurrentPage((p) => p - 1)}
+                disabled={currentPage === 0}
+              >
+                ← Prev
+              </button>
+              <span className="page-indicator">
+                {pages.length > 0
+                  ? loading
+                    ? `Page ${currentPage + 1}`
+                    : `Page ${currentPage + 1} of ${pages.length}`
+                  : ""}
+              </span>
+              <button
+                className="page-btn"
+                onClick={() => setCurrentPage((p) => p + 1)}
+                disabled={currentPage >= pages.length - 1}
+              >
+                Next →
+              </button>
+            </div>
+          )}
 
           {/* Download */}
           {bookData.isComplete && (
@@ -481,16 +532,27 @@ const BOOK_STYLES = `
 }
 
 .book-cover {
-  text-align: center;
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
   padding-bottom: 1.5rem;
   margin-bottom: 1.5rem;
   border-bottom: 2px solid #e5e5e5;
 }
 
+.book-cover-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-top: 0.25rem;
+}
+
 .cover-container {
-  width: 200px;
-  height: 320px;
-  margin: 0 auto 1rem;
+  width: 130px;
+  height: 208px;
+  flex-shrink: 0;
+  margin: 0;
   background: #fff;
   border-radius: 4px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -509,7 +571,7 @@ const BOOK_STYLES = `
 
 .book-title {
   font-family: Helvetica, Arial, sans-serif;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   margin: 0 0 0.5rem 0;
   color: #111;
   line-height: 1.3;
@@ -527,13 +589,49 @@ const BOOK_STYLES = `
   margin: 0;
 }
 
-.book-content {
-  font-family: Georgia, "Times New Roman", serif;
+.book-page {
+  font-family: "Bookerly", Georgia, "Times New Roman", serif;
   font-size: 1rem;
   line-height: 1.75;
   color: #1a1a1a;
-  max-height: 500px;
+  height: 620px;
   overflow-y: auto;
+  padding: 0.5rem 0.25rem;
+}
+
+.page-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0 0;
+  margin-top: 0.5rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.page-btn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #333;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: #0070f3;
+  color: #0070f3;
+}
+
+.page-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: 0.8rem;
+  color: #888;
 }
 
 .content-block {
@@ -574,14 +672,14 @@ const BOOK_STYLES = `
   100% { background-position: -200% 0; }
 }
 
-.book-content h1 {
+.book-page h1 {
   font-family: Helvetica, Arial, sans-serif;
   font-size: 1.4rem;
   margin: 1.5rem 0 0.75rem 0;
   color: #111;
 }
 
-.book-content h2 {
+.book-page h2 {
   font-family: Helvetica, Arial, sans-serif;
   font-size: 1.2rem;
   margin: 1.25rem 0 0.5rem 0;
@@ -590,28 +688,28 @@ const BOOK_STYLES = `
   color: #111;
 }
 
-.book-content h3 {
+.book-page h3 {
   font-family: Helvetica, Arial, sans-serif;
   font-size: 1.1rem;
   margin: 1rem 0 0.5rem 0;
   color: #222;
 }
 
-.book-content p {
+.book-page p {
   margin: 0 0 0.75rem 0;
   color: #1a1a1a;
 }
 
-.book-content a {
+.book-page a {
   color: #0066cc;
   text-decoration: none;
 }
 
-.book-content a:hover {
+.book-page a:hover {
   text-decoration: underline;
 }
 
-.book-content code {
+.book-page code {
   font-family: "Courier New", monospace;
   font-size: 0.875rem;
   background: #f0f0f0;
@@ -619,7 +717,7 @@ const BOOK_STYLES = `
   border-radius: 3px;
 }
 
-.book-content pre {
+.book-page pre {
   background: #f5f5f5;
   padding: 0.75rem 1rem;
   border-radius: 4px;
@@ -629,12 +727,12 @@ const BOOK_STYLES = `
   font-size: 0.875rem;
 }
 
-.book-content pre code {
+.book-page pre code {
   background: none;
   padding: 0;
 }
 
-.book-content blockquote {
+.book-page blockquote {
   border-left: 3px solid #bbb;
   padding-left: 0.75rem;
   margin: 0.75rem 0;
@@ -642,27 +740,27 @@ const BOOK_STYLES = `
   font-style: italic;
 }
 
-.book-content ul, .book-content ol {
+.book-page ul, .book-page ol {
   margin: 0.75rem 0;
   padding-left: 1.5rem;
 }
 
-.book-content li {
+.book-page li {
   margin-bottom: 0.25rem;
 }
 
-.book-content figure {
+.book-page figure {
   margin: 1rem 0;
   text-align: center;
 }
 
-.book-content figure img {
+.book-page figure img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
 }
 
-.book-content .meta {
+.book-page .meta {
   font-family: Helvetica, Arial, sans-serif;
   font-size: 0.875rem;
   color: #666;
