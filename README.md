@@ -20,6 +20,30 @@ Paste the URL of an X Article post, get a clean `.epub` file back — ready to r
 3. Playwright + stealth loads the full article page, dismisses the login overlay, scrolls through to trigger lazy rendering (code blocks, images), and extracts clean semantic HTML
 4. The custom EPUB builder embeds all images, processes the cover to portrait ratio, generates a chapter TOC from `<h2>` headings, and packages everything into a valid EPUB 3 zip
 
+## Streaming conversion
+
+The conversion is streamed to the frontend in real time via Server-Sent Events (SSE) on `POST /api/convert-stream`. Instead of waiting 30+ seconds for a silent spinner, the user sees live progress as it happens:
+
+- **Real scrape progress** — `fetchArticleWithBrowser` uses `page.exposeFunction` to bridge Playwright's browser context to Node.js. During the scroll loop, progress callbacks fire every 10 scroll rounds (~800ms), emitting messages like `Scrolling through article... 45%` directly from inside the headless browser.
+- **Stage events** — `Loading article page...` → `Article found, scrolling...` → `Scrolling... N%` → `Waiting for content to stabilize...` → `Extracting article content...` → `Building EPUB...` → `Complete`
+- **Content blocks** — after extraction, each content block (paragraph, heading, code block, etc.) is sent as a separate SSE event with a 40ms gap to prevent TCP batching. The frontend renders blocks one by one as they arrive.
+- **Metadata first** — cover image, title, author, and date are sent as soon as the parser returns, before blocks stream in.
+- **EPUB delivery** — the final EPUB is base64-encoded and sent in the `complete` event. The frontend decodes it client-side for download — no separate download request needed.
+
+### SSE event types
+
+| Event | Payload | When |
+|---|---|---|
+| `progress` | `{ message }` | Throughout scraping |
+| `metadata` | `{ title, author, authorHandle, coverImageUrl, createdAt }` | After parse returns |
+| `block` | `{ html }` | One per content block |
+| `complete` | `{ filename, epubBase64 }` | After EPUB is built |
+| `error` | `{ message }` | On any failure |
+
+### In-browser reading preview
+
+The frontend (`app/page.tsx`) renders a paginated reading preview as blocks arrive. Blocks are grouped 10 per page. During streaming the page indicator shows `Page N` only; once complete it switches to `Page N of M`. The auto-follow effect tracks the last page while streaming so the user watches the article render in real time.
+
 ## Accepted URL formats
 
 ```
@@ -129,14 +153,15 @@ SESSION_SECRET=your_random_secret_here
 
 ```
 app/
-  layout.tsx              - root layout (Turnstile script)
-  page.tsx                - client page: URL input, convert button, download
-  api/convert/route.ts    - POST /api/convert -> returns application/epub+zip
-  api/session/route.ts    - POST /api/session -> verifies captcha, sets session cookie
+  layout.tsx                     - root layout (Turnstile script)
+  page.tsx                       - client page: URL input, SSE stream consumer, paginated preview
+  api/convert/route.ts           - POST /api/convert -> returns application/epub+zip (direct)
+  api/convert-stream/route.ts    - POST /api/convert-stream -> SSE stream with live progress + EPUB
+  api/session/route.ts           - POST /api/session -> verifies captcha, sets session cookie
 lib/
   session.ts              - HMAC session token sign/verify
-  browser-article.ts      - Playwright scraper for full article content
-  parsers/x.ts            - X.com parser (syndication API + browser fallback)
+  browser-article.ts      - Playwright scraper (exposeFunction for real-time scroll progress)
+  parsers/x.ts            - X.com parser (syndication API + browser, accepts onProgress callback)
   builders/epub.ts        - custom EPUB 3 builder (JSZip + sharp)
   html.ts                 - text -> safe HTML (code blocks, inline code, newlines)
   utils.ts                - sanitizeFilename, firstMeaningfulLine, randomToken
