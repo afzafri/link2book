@@ -1,3 +1,6 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
 /**
  * Sanitize a string for use as a filename.
  * Removes characters not allowed in filenames and trims whitespace.
@@ -23,4 +26,8 @@ export function firstMeaningfulLine(text: string): string {
  */
 export function randomToken(): string {
   return Math.random().toString(36).substring(2, 10);
+}
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }

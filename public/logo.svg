@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" width="200" height="40">
+  <g transform="translate(0, 2)">
+    <!-- Rounded Rectangle Background -->
+    <rect width="36" height="36" rx="4" fill="#1c1917" />
+    
+    <!-- Library Icon -->
+    <svg x="8" y="8" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fdfaf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m16 6 4 14"/>
+      <path d="M12 6v14"/>
+      <path d="M8 8v12"/>
+      <path d="M4 4v16"/>
+    </svg>
+    
+    <!-- Text -->
+    <text 
+      x="48" 
+      y="26" 
+      font-family="ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif" 
+      font-size="24" 
+      font-weight="bold" 
+      fill="#1c1917" 
+      letter-spacing="-0.025em"
+    >
+      Link2Book
+    </text>
+  </g>
+</svg>

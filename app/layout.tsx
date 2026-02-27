@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Link2Book",
@@ -13,8 +14,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "sans-serif", padding: "2rem", maxWidth: "800px", margin: "0 auto" }}>
-          {children}
+      <body className="antialiased text-gray-900 bg-gray-50 min-h-screen">
+        {children}
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
           strategy="afterInteractive"
