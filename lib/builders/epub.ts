@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import sharp from "sharp";
 import type { ParsedContent } from "@/lib/parsers/x";
 import { sanitizeFilename, firstMeaningfulLine } from "@/lib/utils";
+import { generateCoverImage } from "@/lib/cover";
 
 // ── Inline CSS ────────────────────────────────────────────────────────────────
 
@@ -322,17 +323,6 @@ async function downloadImage(url: string): Promise<DownloadedImage | null> {
   }
 }
 
-// Resize cover to portrait book ratio (1:1.6), image centred, white letterbox fill.
-async function processCoverImage(buffer: ArrayBuffer): Promise<{ buffer: ArrayBuffer; mime: string }> {
-  const W = 600;
-  const H = 960; // 1:1.6
-  const processed = await sharp(Buffer.from(buffer))
-    .resize(W, H, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
-    .jpeg({ quality: 90 })
-    .toBuffer();
-  return { buffer: processed.buffer as ArrayBuffer, mime: "image/jpeg" };
-}
-
 // Convert any image format to JPEG — e-ink readers (e.g. Crosspoint) only support JPEG/PNG.
 // X.com CDN serves WebP by default which is unsupported on many devices.
 async function toJpeg(buffer: ArrayBuffer): Promise<{ buffer: ArrayBuffer; mime: string }> {
@@ -352,6 +342,7 @@ function mimeToExt(mime: string): string {
 export interface EpubResult {
   buffer: Buffer;
   filename: string;
+  coverBuffer: Buffer;
 }
 
 export async function buildEpub(content: ParsedContent): Promise<EpubResult> {
@@ -396,32 +387,44 @@ export async function buildEpub(content: ParsedContent): Promise<EpubResult> {
 
   // Build manifest entries and rewrite body HTML to use local paths
   const manifestImages: ManifestImage[] = [];
-  let coverImgId: string | null = null;
   let bodyImgIdx = 0;
   const imgFolder = new Map<string, { filename: string; buffer: ArrayBuffer }>();
 
+  // Grab banner buffer for cover generation (first entry if it's a cover)
+  let bannerBuffer: ArrayBuffer | null = null;
+
   for (let i = 0; i < entries.length; i++) {
     const dl = downloads[i];
-    if (!dl) continue;
-
     const { htmlUrl, isCover } = entries[i];
 
-    // Cover → portrait ratio; body images → convert to JPEG for e-reader compatibility
-    const img = isCover
-      ? await processCoverImage(dl.buffer)
-      : await toJpeg(dl.buffer);
+    if (isCover) {
+      // Save the raw banner so we can composite it into the generated cover
+      bannerBuffer = dl?.buffer ?? null;
+      // Don't add the raw banner as a manifest entry; the generated cover replaces it
+      continue;
+    }
 
+    if (!dl) continue;
+
+    const img = await toJpeg(dl.buffer);
     const ext = mimeToExt(img.mime);
-    const filename = isCover ? `cover.${ext}` : `body${bodyImgIdx++}.${ext}`;
+    const filename = `body${bodyImgIdx++}.${ext}`;
     const href = `images/${filename}`;
-    const imgId = isCover ? "cover-img" : `body-img-${bodyImgIdx - 1}`;
+    const imgId = `body-img-${bodyImgIdx - 1}`;
 
     manifestImages.push({ id: imgId, href, mime: img.mime });
     imgFolder.set(filename, { filename, buffer: img.buffer });
-    if (isCover) coverImgId = imgId;
 
     bodyHtml = bodyHtml.replaceAll(`src="${htmlUrl}"`, `src="${href}"`);
   }
+
+  // Generate the composed cover (always — with or without banner)
+  const coverBuffer = await generateCoverImage(title, displayAuthor, bannerBuffer);
+  const coverFilename = "cover.jpg";
+  const coverHref = `images/${coverFilename}`;
+  manifestImages.unshift({ id: "cover-img", href: coverHref, mime: "image/jpeg" });
+  imgFolder.set(coverFilename, { filename: coverFilename, buffer: coverBuffer.buffer as ArrayBuffer });
+  const coverImgId = "cover-img";
 
   const metaHtml = `<div class="meta">
   <strong>${escXml(content.author)}</strong> (@${escXml(content.authorHandle)})${content.createdAt ? ` &#183; ${new Date(content.createdAt).toDateString()}` : ""}
@@ -458,5 +461,5 @@ export async function buildEpub(content: ParsedContent): Promise<EpubResult> {
   const safeAuthor = sanitizeFilename(displayAuthor);
   const filename = `${safeTitle} - ${safeAuthor}.epub`;
 
-  return { buffer: buffer as Buffer, filename };
+  return { buffer: buffer as Buffer, filename, coverBuffer };
 }

@@ -79,10 +79,12 @@ export async function POST(req: NextRequest) {
 
         // Step 5: Complete
         const epubBase64 = result.buffer.toString("base64");
+        const coverBase64 = `data:image/jpeg;base64,${result.coverBuffer.toString("base64")}`;
         sendEvent({
           type: "complete",
           filename: result.filename,
           epubBase64,
+          coverBase64,
         });
       } catch (err) {
         console.error("Streaming error:", err);

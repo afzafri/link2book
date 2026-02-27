@@ -10,6 +10,8 @@
     "preview": "opennextjs-cloudflare build && wrangler dev"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.95",
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/postcss": "^4.2.1",
     "@tailwindcss/typography": "^0.5.19",
     "clsx": "^2.1.1",
@@ -22,6 +24,7 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "satori": "^0.19.2",
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",

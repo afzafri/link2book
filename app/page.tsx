@@ -30,7 +30,7 @@ type StreamEvent =
   | { type: "progress"; message: string }
   | { type: "metadata"; title: string; author: string; authorHandle: string; coverImageUrl: string | null; createdAt?: string }
   | { type: "block"; html: string }
-  | { type: "complete"; filename: string; epubBase64: string }
+  | { type: "complete"; filename: string; epubBase64: string; coverBase64: string }
   | { type: "error"; message: string };
 
 interface BookData {
@@ -249,7 +249,7 @@ export default function Home() {
         setStages((prev) => [...prev, "Complete"]);
         setBookData((prev) =>
           prev
-            ? { ...prev, isComplete: true, filename: event.filename, epubBase64: event.epubBase64 }
+            ? { ...prev, isComplete: true, filename: event.filename, epubBase64: event.epubBase64, coverImageUrl: event.coverBase64 }
             : null
         );
         break;

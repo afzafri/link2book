@@ -1,8 +1,8 @@
 # Link2Book
 
-Convert X (Twitter) Article links into EPUB books.
+> Convert X (Twitter) Article links into EPUB books.
 
-> Paste the URL of an X Article post, get a clean `.epub` file back — ready to read in Apple Books, Kindle, or any EPUB reader.
+Paste the URL of an X Article post, get a clean `.epub` file back — ready to read in Apple Books, Kindle, or any EPUB reader.
 
 ![Link2Book Screenshot](docs/screenshot.jpg)
 
